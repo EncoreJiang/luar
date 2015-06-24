@@ -623,6 +623,11 @@ func GoToLua(L *lua.State, t reflect.Type, val reflect.Value, dontproxify bool) 
 	}
 	kind := t.Kind()
 
+	if val.Kind() == reflect.Ptr && val.IsNil() {
+		L.PushNil()
+		return
+	}
+
 	// underlying type is 'primitive' ? wrap it as a proxy!
 	if isPrimitiveDerived(t, kind) != nil {
 		makeValueProxy(L, val, cINTERFACE_META)
@@ -714,10 +719,12 @@ func cannotConvert(L *lua.State, idx int, msg string, kind reflect.Kind, t refle
 func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 	var value interface{}
 	var kind reflect.Kind
+	elem_type := t
 
 	if t != nil { // let the Lua type drive the conversion...
 		if t.Kind() == reflect.Ptr {
 			kind = t.Elem().Kind()
+			elem_type = t.Elem()
 		} else if t.Kind() == reflect.Interface {
 			t = nil
 		} else {
@@ -729,7 +736,11 @@ func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 	case lua.LUA_TNIL:
 		if t == nil {
 			return nil
+		} else if t.Kind() == reflect.Ptr {
+			v := reflect.New(t)
+			return v.Elem().Interface()
 		}
+
 		switch kind {
 		default:
 			cannotConvert(L, idx, "nil", kind, t)
@@ -843,6 +854,16 @@ func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 		default:
 			cannotConvert(L, idx, "number", kind, t)
 		}
+		if t != nil {
+			newVal := reflect.ValueOf(value)
+			newType := newVal.Type()
+
+			if newType != elem_type {
+				if newType.ConvertibleTo(elem_type) {
+					value = newVal.Convert(elem_type).Interface()
+				}
+			}
+		}
 	case lua.LUA_TTABLE:
 		if t == nil {
 			kind = reflect.Interface
@@ -872,11 +893,13 @@ func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 			}
 		case reflect.Map:
 			{
+				fmt.Println("MAP_____", istable)
 				if istable {
 					value = CopyTableToMap(L, t, idx)
 				} else {
 					value = unwrapProxyOrComplain(L, idx)
 				}
+				fmt.Println("MAP:", value)
 			}
 		case reflect.Struct:
 			{
@@ -914,6 +937,11 @@ func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 		}
 	}
 
+	if t.Kind() == reflect.Ptr {
+		v := reflect.New(t)
+		v.SetPointer((unsafe.Pointer)(reflect.ValueOf(value).UnsafeAddr()))
+		return v.Interface()
+	}
 	return value
 }
 
