@@ -937,9 +937,9 @@ func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 		}
 	}
 
-	if t.Kind() == reflect.Ptr {
-		v := reflect.New(t)
-		v.SetPointer((unsafe.Pointer)(reflect.ValueOf(value).UnsafeAddr()))
+	if t != nil && t.Kind() == reflect.Ptr {
+		v := reflect.New(t.Elem())
+		v.Elem().Set(reflect.ValueOf(value).Convert(t.Elem()))
 		return v.Interface()
 	}
 	return value
@@ -1068,6 +1068,35 @@ func register(L *lua.State, table string, values Map, convertFun bool) {
 			GoToLua(L, t, valueOf(val), false)
 		}
 		L.SetField(-2, name)
+
+		if t.Kind() == reflect.Func {
+			var lf func(*lua.State) int
+			if convertFun {
+				lf = GoLuaFunc(L, val)
+			} else {
+				lf = val.(func(*lua.State) int)
+			}
+			L.PushGoFunction(func(L *lua.State) (ret int) {
+				defer func() {
+					if err2 := recover(); err2 != nil {
+						GoToLua(L, typeof(err2), valueOf(err2), false)
+						ret = 1
+						return
+					}
+				}()
+
+				ret = lf(L)
+				pos := L.GetTop() - ret + 1
+				L.PushNil()
+				L.Insert(pos)
+
+				for i := 0; i < L.GetTop(); i++ {
+					fmt.Println(L.Typename(int(L.Type(i + 1))))
+				}
+				return ret + 1
+			})
+			L.SetField(-2, "safe_"+name)
+		}
 	}
 	if pop {
 		L.Pop(1)
