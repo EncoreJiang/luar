@@ -6,6 +6,7 @@ import lua "github.com/aarzilli/golua/lua"
 import "strings"
 import "reflect"
 import "unsafe"
+import "math"
 import "fmt"
 import "sync"
 
@@ -776,7 +777,12 @@ func LuaToGo(L *lua.State, t reflect.Type, idx int) interface{} {
 		}
 	case lua.LUA_TNUMBER:
 		if t == nil {
-			kind = reflect.Float64
+			v := L.ToNumber(idx)
+			if v == math.Floor(v) {
+				kind = reflect.Int64
+			} else {
+				kind = reflect.Float64
+			}
 		}
 		switch kind {
 		case reflect.Float64:
